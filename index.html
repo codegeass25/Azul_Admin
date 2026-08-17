@@ -813,9 +813,14 @@
 (function () {
   'use strict';
 
+  var DEFAULT_API = 'https://api.mdmsportal.uk';
   var qsApi = new URLSearchParams(location.search).get('api');
   if (qsApi) localStorage.setItem('pb_api_url', qsApi.replace(/\/+$/, ''));
-  var API = localStorage.getItem('pb_api_url') || (location.origin && location.origin !== 'null' ? location.origin : '');
+  var API = localStorage.getItem('pb_api_url');
+  if (!API) {
+    var isLocal = /^(localhost|127\.0\.0\.1)$/i.test(location.hostname || '');
+    API = isLocal && location.origin && location.origin !== 'null' ? location.origin : DEFAULT_API;
+  }
   var TOKEN = localStorage.getItem('pb_admin_token') || '';
   var USER = null, BRAND = {}, SETTINGS = {}, COURTS = [], PLAYERS = [], BOOKINGS = [];
 
@@ -826,6 +831,16 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   };
+
+  /* Resolve API-relative uploaded assets when Admin is hosted separately
+     from the backend/API server. */
+  function assetUrl(url) {
+    url = String(url == null ? '' : url).trim();
+    if (!url) return '';
+    if (/^(?:https?:|data:|blob:|\/\/)/i.test(url)) return url;
+    if (url.charAt(0) === '/') return API.replace(/\/+$/, '') + url;
+    return API.replace(/\/+$/, '') + '/' + url.replace(/^\/+/, '');
+  }
 
   var ICONS = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
   function toast(msg, type) {
@@ -1238,7 +1253,7 @@
         $('#tx-receipt', host).innerHTML = '<div class="card" style="padding:16px"><strong>Online payment</strong><div class="tiny muted mt-2">No receipt upload is required. The transaction is verified by PayMongo webhook.</div></div>';
       } else if (t.has_receipt) {
         txReceiptUrl(t.transaction_key).then(function (url) {
-          $('#tx-receipt', host).innerHTML = '<a href="' + url + '" target="_blank" rel="noopener"><img src="' + url + '" alt="Payment receipt" /></a>';
+          $('#tx-receipt', host).innerHTML = '<a href="' + assetUrl(url) + '" target="_blank" rel="noopener"><img src="' + assetUrl(url) + '" alt="Payment receipt" /></a>';
         }).catch(function (e) { $('#tx-receipt', host).innerHTML = '<span class="muted tiny">' + esc(e.message) + '</span>'; });
       } else {
         $('#tx-receipt', host).innerHTML = '<span class="muted tiny">No receipt was uploaded for this transaction.</span>';
@@ -1439,12 +1454,12 @@
     var bootLogo = b.boot_logo_url || b.logo_url || '';
     [['#hero-logo', b.logo_url || appLogo], ['#app-logo', appLogo]].forEach(function (pair) {
       var el = $(pair[0]); if (!el) return;
-      el.innerHTML = pair[1] ? '<img src="' + esc(pair[1]) + '" alt="' + esc(name) + ' logo" />' : esc(initials);
+      el.innerHTML = pair[1] ? '<img src="' + esc(assetUrl(pair[1])) + '" alt="' + esc(name) + ' logo" />' : esc(initials);
     });
     var bl = $('#boot-logo');
-    if (bl) bl.innerHTML = bootLogo ? '<img src="' + esc(bootLogo) + '" alt="' + esc(name) + ' logo" />' : esc(initials);
+    if (bl) bl.innerHTML = bootLogo ? '<img src="' + esc(assetUrl(bootLogo)) + '" alt="' + esc(name) + ' logo" />' : esc(initials);
     var bn = $('#boot-name'); if (bn) bn.textContent = name + ' \u00b7 Admin';
-    if (b.favicon_url) $('#favicon').href = b.favicon_url;
+    if (b.favicon_url) $('#favicon').href = assetUrl(b.favicon_url);
     $('#hero-name').textContent = name;
     $('#app-name').textContent = name;
     var hs = $('#hero-short'); if (hs) hs.textContent = b.short_name || 'Admin console';
@@ -1841,7 +1856,7 @@
       '<button class="btn btn-outline btn-sm" id="trn-edit">Edit details</button>' +
       '<button class="btn btn-primary btn-sm" id="trn-add-div">＋ Division</button>' +
       '</div></div>' +
-      (t.poster_url ? '<img src="' + esc(t.poster_url) + '" alt="' + esc(t.name) + ' poster" style="max-height:220px;border-radius:12px;margin-bottom:14px" />' : '') +
+      (t.poster_url ? '<img src="' + esc(assetUrl(t.poster_url)) + '" alt="' + esc(t.name) + ' poster" style="max-height:220px;border-radius:12px;margin-bottom:14px" />' : '') +
       '<dl class="summary-list">' +
       '<div class="summary-row"><dt>Dates</dt><dd>' + esc(trnDateRange(t)) + '</dd></div>' +
       '<div class="summary-row"><dt>Time</dt><dd>' + esc(t.start_time ? humanTime(t.start_time) : 'TBA') +
@@ -3338,7 +3353,7 @@
       if (input) input.value = url;
       var box = card.querySelector('[data-preview]');
       box.innerHTML = url
-        ? '<img src="' + esc(url) + '" alt="preview" />'
+        ? '<img src="' + esc(assetUrl(url)) + '" alt="preview" />'
         : '<span class="muted tiny">No image \u2014 falling back to the main logo</span>';
     });
   }
