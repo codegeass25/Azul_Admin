@@ -459,12 +459,6 @@
               <p class="page-subtitle">Create and manage Open Play events, entrance fees, capacity and attendees.</p>
               <span class="badge badge-pending" id="ev-hub-op">—</span>
             </button>
-            <button class="card event-hub-card" data-goto-page="payments" type="button">
-              <div class="event-hub-icon">🧾</div>
-              <h3 class="section-title">Registration payments</h3>
-              <p class="page-subtitle">Review receipts, OCR results and verify or reject event payments.</p>
-              <span class="badge badge-pending" id="ev-hub-pay">—</span>
-            </button>
           </div>
           <div class="grid cols-4" id="ev-hub-stats"></div>
         </div>
@@ -2922,13 +2916,11 @@
     return Promise.all([
       api('/api/admin/tournaments').catch(function () { return []; }),
       api('/api/admin/open-play').catch(function () { return []; }),
-      api('/api/admin/event-payments?status=all').catch(function () { return { stats: {}, payments: [] }; })
+      api('/api/admin/event-payments?status=all').catch(function () { return { stats: {} }; })
     ]).then(function (r) {
-      var tournaments = r[0] || [], openplay = r[1] || [], pay = r[2];
-      var pending = (pay.payments || []).filter(function (p) { return p.status === 'under_review' || p.status === 'submitted'; }).length;
+      var tournaments = r[0] || [], openplay = r[1] || [], pay = r[2] || {};
       $('#ev-hub-trn').textContent = tournaments.length + ' tournament' + (tournaments.length === 1 ? '' : 's');
       $('#ev-hub-op').textContent = openplay.length + ' event' + (openplay.length === 1 ? '' : 's');
-      $('#ev-hub-pay').textContent = pending + ' awaiting review';
       var collected = pay.stats ? pay.stats.total_collected : 0;
       var opRegistered = openplay.reduce(function (a, e) { return a + (e.registered || 0); }, 0);
       $('#ev-hub-stats').innerHTML = [
@@ -3558,7 +3550,7 @@
       'booking:created': function () { run('bookings', loadBookings); run('dashboard', loadDashboard); if (onPage('calendar')) run('calendar', loadCalendar); },
       'booking:updated': function () { run('bookings', loadBookings); run('dashboard', loadDashboard); if (onPage('calendar')) run('calendar', loadCalendar); },
       'booking:status_changed': function () { run('bookings', loadBookings); run('dashboard', loadDashboard); if (onPage('calendar')) run('calendar', loadCalendar); },
-      'booking:cancelled': function () { run('bookings', loadBookings); run('dashboard', loadDashboard); if (onPage('calendar')) run('calendar', loadCalendar); },
+      'booking:cancelled': function () { run('bookings', loadBookings); run('dashboard', loadDashboard); run('payments', loadPayments); if (onPage('calendar')) run('calendar', loadCalendar); },
       'booking:rescheduled': function () { run('bookings', loadBookings); run('dashboard', loadDashboard); if (onPage('calendar')) run('calendar', loadCalendar); },
       'booking:payment_updated': function () { run('bookings', loadBookings); run('dashboard', loadDashboard); if (onPage('payments')) run('payments', loadPayments); },
       'payment:submitted': function () { if (onPage('payments')) run('payments', loadPayments); run('dashboard', loadDashboard); run('badges', refreshEventBadges); },
@@ -3574,7 +3566,7 @@
       'openplay:updated': function () { if (onPage('openplay')) run('openplay', loadOpenPlay); if (onPage('events')) run('hub', loadEventsHub); run('badges', refreshEventBadges); },
       'openplay:status_changed': function () { if (onPage('openplay')) run('openplay', loadOpenPlay); run('badges', refreshEventBadges); },
       'openplay:deleted': function () { if (onPage('openplay')) run('openplay', loadOpenPlay); if (onPage('events')) run('hub', loadEventsHub); run('badges', refreshEventBadges); },
-      'openplay:registration_created': function () { if (onPage('openplay')) run('openplay', loadOpenPlay); if (OP_REGS_OPEN) run('opregs', function () { loadOpenPlayRegistrations(OP_REGS_OPEN); }); run('badges', refreshEventBadges); },
+      'openplay:registration_created': function () { if (onPage('openplay')) run('openplay', loadOpenPlay); if (OP_REGS_OPEN) run('opregs', function () { loadOpenPlayRegistrations(OP_REGS_OPEN); }); run('badges', refreshEventBadges); },      'openplay:registration_cancelled': function () { if (onPage('openplay')) run('openplay', loadOpenPlay); if (OP_REGS_OPEN) run('opregs', function () { loadOpenPlayRegistrations(OP_REGS_OPEN); }); if (onPage('events')) run('hub', loadEventsHub); run('payments', loadPayments); run('badges', refreshEventBadges); },
       'openplay:payment_updated': function () { if (OP_REGS_OPEN) run('opregs', function () { loadOpenPlayRegistrations(OP_REGS_OPEN); }); run('badges', refreshEventBadges); },
       'tournament:created': function () { if (onPage('tournaments')) run('tournaments', loadTournaments); if (onPage('events')) run('hub', loadEventsHub); },
       'tournament:updated': function () { if (onPage('tournaments')) run('tournaments', loadTournaments); if (onPage('events')) run('hub', loadEventsHub); },
@@ -3582,7 +3574,7 @@
       'tournament:deleted': function () { if (onPage('tournaments')) run('tournaments', loadTournaments); if (onPage('events')) run('hub', loadEventsHub); },
       'tournament:match_updated': function () { if (onPage('tournaments')) run('tournaments', loadTournaments); },
       'tournament:registration_created': function () { if (onPage('tournaments')) { run('treg', loadTournamentRegistrations); run('tournaments', loadTournaments); } run('badges', refreshEventBadges); },
-      'tournament:registration_updated': function () { if (onPage('tournaments')) { run('treg', loadTournamentRegistrations); run('tournaments', loadTournaments); } run('badges', refreshEventBadges); },
+      'tournament:registration_updated': function () { if (onPage('tournaments')) { run('treg', loadTournamentRegistrations); run('tournaments', loadTournaments); } run('badges', refreshEventBadges); },      'tournament:registration_cancelled': function () { if (onPage('tournaments')) { run('treg', loadTournamentRegistrations); run('tournaments', loadTournaments); } if (onPage('events')) run('hub', loadEventsHub); run('payments', loadPayments); run('badges', refreshEventBadges); },
       'tournament:payment_updated': function () { if (onPage('tournaments')) run('treg', loadTournamentRegistrations); run('badges', refreshEventBadges); },
       'availability:changed': function () { if (onPage('calendar')) run('calendar', loadCalendar); },
       'player:created': function () { if (onPage('players')) run('players', loadPlayers); run('dashboard', loadDashboard); },
