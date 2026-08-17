@@ -799,6 +799,24 @@
           <h3 class="card-title" style="margin-bottom:8px">Database backup</h3>
           <p class="muted tiny" style="margin-top:0">Downloads a consistent copy of the SQLite database. To restore: stop the server, replace <code>database.sqlite3</code> with the backup, then start the server again.</p>
           <button class="btn btn-outline mt-4" id="btn-backup" data-loading="Preparing...">Download backup</button>
+
+          <hr style="border:0;border-top:1px solid var(--border);margin:24px 0" />
+          <div class="panel" style="border:1px solid var(--danger,#ef4444);background:color-mix(in srgb, var(--danger,#ef4444) 6%, transparent)">
+            <div class="spread" style="gap:16px;align-items:flex-start">
+              <div>
+                <h3 class="card-title" style="margin-bottom:6px">Reset system data</h3>
+                <p class="muted tiny" style="margin:0;max-width:760px">
+                  Permanently removes client/player records, bookings, payments, transactions, tournament and Open Play records,
+                  registrations, OCR/receipt history, notification history, audit logs, webhook history, and uploaded payment receipts.
+                  <strong>Settings, facility configuration, admin accounts, courts and court time-slots are preserved.</strong>
+                </p>
+              </div>
+              <span class="badge badge-rejected" data-icon="!">PERMANENT</span>
+            </div>
+            <div class="row wrap mt-4">
+              <button class="btn btn-danger" type="button" id="btn-reset-system-data" data-loading="Resetting...">Reset System Data</button>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -3441,6 +3459,59 @@
       .finally(function () { busy(btn, false); });
   };
 
+
+
+  $('#btn-reset-system-data').onclick = function () {
+    var btn = this;
+    modal({
+      title: 'Reset ALL system data?',
+      danger: true,
+      confirmText: 'Yes, permanently reset',
+      cancelText: 'Cancel',
+      body:
+        '<div class="card" style="border:1px solid var(--danger,#ef4444);margin:0 0 14px">' +
+          '<strong style="display:block;margin-bottom:8px">This cannot be undone.</strong>' +
+          '<p class="muted tiny" style="margin:0 0 10px">It will remove all client/player records and all operational records, including bookings, transactions, payments, tournament registrations, Open Play registrations, OCR scans, receipts, notifications, audit logs and webhook history.</p>' +
+          '<p class="tiny" style="margin:0"><strong>Preserved:</strong> Settings, branding, facility configuration, admin accounts, courts and court time-slots.</p>' +
+        '</div>' +
+        '<label class="label" for="reset-confirm-text">Type <code>RESET</code> to continue</label>' +
+        '<input class="input" id="reset-confirm-text" autocomplete="off" spellcheck="false" placeholder="RESET" />',
+      onConfirm: function (host) {
+        var input = $('#reset-confirm-text', host);
+        if (!input || input.value.trim().toUpperCase() !== 'RESET') {
+          throw new Error('Type RESET exactly to confirm.');
+        }
+        busy(btn, true);
+        return api('/api/admin/reset-system-data', {
+          method: 'POST',
+          body: { confirmation: 'RESET' }
+        }).then(function (result) {
+          toast('System data reset completed. Settings and admin access were preserved.', 'success');
+          /*
+           * Refresh every admin-facing dataset. The settings loader is also
+           * called so the UI reflects the preserved configuration exactly.
+           */
+          return Promise.all([
+            loadSettings(),
+            loadDashboard(),
+            loadPlayers(),
+            loadBookings(),
+            loadCalendar(),
+            loadPayments(),
+            loadNotifications(),
+            loadTournaments(),
+            loadOpenPlay()
+          ].map(function (p) {
+            return Promise.resolve(p).catch(function () {});
+          })).then(function () {
+            return result;
+          });
+        }).finally(function () {
+          busy(btn, false);
+        });
+      }
+    });
+  };
 
   /* ================= real-time synchronization (Socket.IO) ================= */
   /* Events carry only ids/timestamps: the REST API stays the source of truth. */
