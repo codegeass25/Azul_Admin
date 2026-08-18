@@ -90,7 +90,7 @@
         <div class="row">
           <button class="btn btn-ghost btn-icon mobile-only" id="drawer-open" aria-label="Open navigation">☰</button>
           <div><div class="brand-name" id="page-title">Dashboard</div>
-            <div class="brand-tagline" id="admin-email"></div></div>
+            <div class="brand-tagline" id="admin-email"></div><div class="brand-tagline" id="admin-role-label" style="font-weight:700"></div></div>
         </div>
         <div class="row" style="gap:6px">
           <span class="tiny muted" id="rt-status" title="Real-time connection" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap">
@@ -1510,7 +1510,7 @@
     busy(btn, true);
     api('/api/auth/login', { method: 'POST', body: { email: $('#li-email').value.trim(), password: $('#li-pass').value } })
       .then(function (d) {
-        if (d.user.role !== 'admin') throw new Error('This account is not an administrator');
+        if (!['admin', 'superadmin'].includes(d.user.role)) throw new Error('This account is not authorized for the Admin System');
         TOKEN = d.token; USER = d.user; localStorage.setItem('pb_admin_token', TOKEN);
         showApp(); toast('Welcome back, ' + d.user.full_name.split(' ')[0] + '.', 'success');
       })
@@ -1640,18 +1640,63 @@
     }).join('');
   }
   var current = 'dashboard';
+  function isSuperadmin() { return !!(USER && USER.role === 'superadmin'); }
+  function isAdmin() { return !!(USER && USER.role === 'admin'); }
+  function applyRoleUI() {
+    var superadmin = isSuperadmin();
+    var admin = isAdmin();
+    /* Normal admin: Settings is completely absent. Superadmin: Settings only. */
+    $$('#nav .nav-item').forEach(function (b) {
+      var allowed = superadmin ? b.dataset.page === 'settings' : (admin && b.dataset.page !== 'settings');
+      b.classList.toggle('hidden', !allowed);
+    });
+    $('#btn-new-booking').classList.toggle('hidden', !admin);
+    if (superadmin) {
+      $('#admin-role-label').textContent = 'SUPERADMIN · SETTINGS READ ONLY';
+      $('#admin-role-label').style.color = 'var(--accent,#2563eb)';
+      $('#page-title').textContent = 'System Settings';
+    } else {
+      $('#admin-role-label').textContent = 'ADMIN';
+      $('#admin-role-label').style.color = '';
+    }
+  }
+  function applySuperadminReadOnly() {
+    if (!isSuperadmin()) return;
+    var root = $('#page-settings');
+    if (!root) return;
+    $$('input, select, textarea', root).forEach(function (el) { el.disabled = true; });
+    $$('button', root).forEach(function (btn) {
+      if (!btn.hasAttribute('data-settab')) btn.disabled = true;
+    });
+    /* Hide actions that are not configuration viewing. */
+    ['#form-adminpw', '#btn-backup', '#btn-reset-system-data', '#btn-test-email', '#btn-test-sms'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) {
+        var target = el.closest('form') || el;
+        target.classList.add('hidden');
+      }
+    });
+    $$('.asset-card', root).forEach(function (card) {
+      $$('[data-upload], [data-save], [data-remove]', card).forEach(function (btn) { btn.classList.add('hidden'); });
+    });
+    $$('[data-qr-upload]', root).forEach(function (btn) { btn.classList.add('hidden'); });
+  }
   function goto(page) {
     /* Registration payments were merged into the Transaction Center. */
     if (page === 'evpayments') page = 'payments';
+    if (isSuperadmin() && page !== 'settings') page = 'settings';
+    if (isAdmin() && page === 'settings') page = 'dashboard';
+    if (!LOADERS[page]) page = isSuperadmin() ? 'settings' : 'dashboard';
     current = page;
     PAGES.forEach(function (p) { $('#page-' + p).classList.toggle('hidden', p !== page); });
     var groupFor = GROUP_OF[page] || page;
     $$('#nav .nav-item').forEach(function (b) { b.classList.toggle('is-active', b.dataset.group === groupFor); });
     renderSubnav(page);
-    $('#page-title').textContent = PAGE_TITLES[page] || (page.charAt(0).toUpperCase() + page.slice(1));
+    $('#page-title').textContent = isSuperadmin() ? 'System Settings' : (PAGE_TITLES[page] || (page.charAt(0).toUpperCase() + page.slice(1)));
     $('#view-app').classList.remove('drawer-open');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     LOADERS[page]();
+    if (isSuperadmin() && page === 'settings') applySuperadminReadOnly();
   }
   $('#nav').addEventListener('click', function (e) {
     var b = e.target.closest('[data-page]'); if (b) goto(b.dataset.page);
@@ -3083,6 +3128,7 @@
     var btn = $('#op-poster-upload', host), file = $('#op-poster-file', host);
     btn.onclick = function () { file.click(); };
     file.onchange = function () {
+      if (!isAdmin()) return;
       var f = this.files && this.files[0]; this.value = '';
       if (!f) return;
       if (f.size > 5 * 1024 * 1024) return toast('Image is too large (max 5MB).', 'error');
@@ -3299,6 +3345,9 @@
     host.innerHTML = bits.join(' &middot; ');
   }
   function loadSettings() {
+    if (!isSuperadmin()) {
+      return Promise.reject(new Error('Settings are available only to the Superadmin.'));
+    }
     return api('/api/admin/settings').then(function (s) {
       SETTINGS = s;
       $$('[data-key]').forEach(function (el) {
@@ -3311,6 +3360,7 @@
       var sender = $('#s-smtp_from_name'); if (sender) sender.value = s.facility_name || '';
       renderSmsGatewayStatus(s.sms_gateway);
       renderAssetPreviews();
+      applySuperadminReadOnly();
     }).catch(function (e) { toast(e.message, 'error'); });
   }
   $$('[data-mirror]').forEach(function (mirror) {
@@ -3322,7 +3372,9 @@
     });
   });
   function saveSettings(form, keys) {
+    if (!form) return;
     form.addEventListener('submit', function (e) {
+      if (!isAdmin()) { e.preventDefault(); toast('Settings are read-only for Superadmin.', 'error'); return; }
       e.preventDefault();
       var btn = form.querySelector('button[type=submit]');
       busy(btn, true);
@@ -3382,19 +3434,22 @@
     var type = card.dataset.asset;
     var key = ASSET_KEY[type];
     var file = card.querySelector('[data-file]');
-    card.querySelector('[data-upload]').onclick = function () { file.click(); };
+    card.querySelector('[data-upload]').onclick = function () { if (!isAdmin()) return; file.click(); };
     card.querySelector('[data-save]').onclick = function () {
+      if (!isAdmin()) return toast('Branding is read-only for Superadmin.', 'error');
       persistAsset(key, card.querySelector('[data-key]').value.trim())
         .then(function () { toast('Branding asset saved.', 'success'); })
         .catch(function (e) { toast(e.message, 'error'); });
     };
     card.querySelector('[data-remove]').onclick = function () {
+      if (!isAdmin()) return toast('Branding is read-only for Superadmin.', 'error');
       api('/api/admin/branding/' + type, { method: 'DELETE' }).then(function () {
         return loadSettings().then(function () { return api('/api/branding').then(applyBranding); });
       }).then(function () { toast('Branding asset removed.', 'success'); })
         .catch(function (e) { toast(e.message, 'error'); });
     };
     file.onchange = function () {
+      if (!isAdmin()) return;
       var f = this.files && this.files[0];
       this.value = '';
       if (!f) return;
@@ -3415,6 +3470,7 @@
   });
 
   $('#btn-test-email').onclick = function () {
+    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
     modal({ title: 'Send test email',
       body: '<div class="field"><label class="label" for="te-to">Recipient</label><input class="input" id="te-to" type="email" value="' + esc(USER ? USER.email : '') + '" /></div>',
       confirmText: 'Send test email',
@@ -3424,6 +3480,7 @@
       } });
   };
   $('#btn-test-sms').onclick = function () {
+    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
     modal({ title: 'Send test SMS',
       body: '<div class="field"><label class="label" for="ts-to">Mobile number</label><input class="input" id="ts-to" placeholder="+63 917 000 0000" /></div>',
       confirmText: 'Send test SMS',
@@ -3434,6 +3491,7 @@
   };
   $('#form-adminpw').addEventListener('submit', function (e) {
     e.preventDefault();
+    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
     var btn = e.target.querySelector('button[type=submit]');
     busy(btn, true);
     api('/api/auth/password', { method: 'PUT', body: { current_password: $('#ap-cur').value, new_password: $('#ap-new').value } })
@@ -3442,6 +3500,7 @@
       .finally(function () { busy(btn, false); });
   });
   $('#btn-backup').onclick = function () {
+    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
     var btn = this; busy(btn, true);
     fetch(API + '/api/admin/backup', { headers: { Authorization: 'Bearer ' + TOKEN } })
       .then(function (r) { if (!r.ok) throw new Error('Backup failed'); return r.blob(); })
@@ -3638,9 +3697,13 @@
     $('#view-auth').classList.add('hidden');
     $('#view-app').classList.remove('hidden');
     $('#admin-email').textContent = USER.email;
-    loadCourts();
-    loadSettings();
-    goto('dashboard');
+    applyRoleUI();
+    if (isSuperadmin()) {
+      goto('settings');
+    } else {
+      loadCourts();
+      goto('dashboard');
+    }
     RT.connect();
   }
   setTimeout(hideSplash, 900);
@@ -3650,7 +3713,7 @@
     setTimeout(apiDialog, 400);
   });
   if (TOKEN) api('/api/auth/me').then(function (d) {
-    if (d.user.role !== 'admin') throw new Error('not admin');
+    if (!['admin', 'superadmin'].includes(d.user.role)) throw new Error('not admin');
     USER = d.user; showApp();
   }).catch(function () { signOutLocal(); });
 })();
