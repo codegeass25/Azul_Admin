@@ -791,7 +791,7 @@
           </form>
           <hr style="border:0;border-top:1px solid var(--border);margin:24px 0" />
           <h3 class="card-title" style="margin-bottom:8px">Database backup</h3>
-          <p class="muted tiny" style="margin-top:0">Downloads a consistent copy of the SQLite database. To restore: stop the server, replace <code>database.sqlite3</code> with the backup, then start the server again.</p>
+          <p class="muted tiny" style="margin-top:0">Operational controls for the facility administrator. This section contains only administrator password management, database backup, and system reset. To restore: stop the server, replace <code>database.sqlite3</code> with the backup, then start the server again.</p>
           <button class="btn btn-outline mt-4" id="btn-backup" data-loading="Preparing...">Download backup</button>
 
           <hr style="border:0;border-top:1px solid var(--border);margin:24px 0" />
@@ -1615,7 +1615,7 @@
     dashboard: loadDashboard, bookings: loadBookings, payments: loadPayments, calendar: loadCalendar, courts: loadCourts,
     players: loadPlayers, ratings: loadRatings, blocks: loadBlocks, notifications: loadNotifications, reports: runReport,
     tournaments: loadTournaments, events: loadEventsHub, openplay: loadOpenPlay,
-    settings: loadSettings
+    settings: function () { return isSuperadmin() ? loadSettings() : Promise.resolve(); }
   };
   var PAGE_TITLES = {
     ratings: 'Players', blocks: 'Schedule', calendar: 'Schedule', bookings: 'Schedule', courts: 'Schedule',
@@ -1645,14 +1645,15 @@
   function applyRoleUI() {
     var superadmin = isSuperadmin();
     var admin = isAdmin();
-    /* Normal admin: Settings is completely absent. Superadmin: Settings only. */
+    /* Normal admin gets the operational Settings page; Superadmin gets the
+       full Settings area. Other Admin navigation remains unchanged. */
     $$('#nav .nav-item').forEach(function (b) {
-      var allowed = superadmin ? b.dataset.page === 'settings' : (admin && b.dataset.page !== 'settings');
+      var allowed = superadmin ? b.dataset.page === 'settings' : (admin || b.dataset.page !== 'settings');
       b.classList.toggle('hidden', !allowed);
     });
     $('#btn-new-booking').classList.toggle('hidden', !admin);
     if (superadmin) {
-      $('#admin-role-label').textContent = 'SUPERADMIN · SETTINGS READ ONLY';
+      $('#admin-role-label').textContent = 'SUPERADMIN · SETTINGS';
       $('#admin-role-label').style.color = 'var(--accent,#2563eb)';
       $('#page-title').textContent = 'System Settings';
     } else {
@@ -1660,43 +1661,50 @@
       $('#admin-role-label').style.color = '';
     }
   }
-  function applySuperadminReadOnly() {
+  function applyAdminOperationalSettingsUI() {
+    if (!isAdmin()) return;
+    var root = $('#page-settings');
+    if (!root) return;
+    /* For normal Admin, Settings contains ONLY Operational Settings. */
+    Array.prototype.forEach.call(root.children, function (el) {
+      el.classList.toggle('hidden', el.id !== 'set-security');
+    });
+    var security = $('#set-security');
+    if (security) {
+      security.classList.remove('hidden');
+      var heading = security.querySelector('.section-title');
+      if (heading) heading.textContent = 'Operational Settings';
+    }
+  }
+  function applySuperadminSettingsUI() {
     if (!isSuperadmin()) return;
     var root = $('#page-settings');
     if (!root) return;
-    $$('input, select, textarea', root).forEach(function (el) { el.disabled = true; });
-    $$('button', root).forEach(function (btn) {
-      if (!btn.hasAttribute('data-settab')) btn.disabled = true;
+    /* Superadmin has full Settings read/write access. Operational controls
+       are reserved for the normal Admin UI. */
+    var security = $('#set-security');
+    if (security) security.classList.add('hidden');
+    $$('input, select, textarea, button', root).forEach(function (el) {
+      if (el.matches('[data-settab]')) el.disabled = false;
+      else if (!el.closest('#set-security')) el.disabled = false;
     });
-    /* Hide actions that are not configuration viewing. */
-    ['#form-adminpw', '#btn-backup', '#btn-reset-system-data', '#btn-test-email', '#btn-test-sms'].forEach(function (sel) {
-      var el = $(sel);
-      if (el) {
-        var target = el.closest('form') || el;
-        target.classList.add('hidden');
-      }
-    });
-    $$('.asset-card', root).forEach(function (card) {
-      $$('[data-upload], [data-save], [data-remove]', card).forEach(function (btn) { btn.classList.add('hidden'); });
-    });
-    $$('[data-qr-upload]', root).forEach(function (btn) { btn.classList.add('hidden'); });
   }
   function goto(page) {
     /* Registration payments were merged into the Transaction Center. */
     if (page === 'evpayments') page = 'payments';
     if (isSuperadmin() && page !== 'settings') page = 'settings';
-    if (isAdmin() && page === 'settings') page = 'dashboard';
     if (!LOADERS[page]) page = isSuperadmin() ? 'settings' : 'dashboard';
     current = page;
     PAGES.forEach(function (p) { $('#page-' + p).classList.toggle('hidden', p !== page); });
     var groupFor = GROUP_OF[page] || page;
     $$('#nav .nav-item').forEach(function (b) { b.classList.toggle('is-active', b.dataset.group === groupFor); });
     renderSubnav(page);
-    $('#page-title').textContent = isSuperadmin() ? 'System Settings' : (PAGE_TITLES[page] || (page.charAt(0).toUpperCase() + page.slice(1)));
+    $('#page-title').textContent = isSuperadmin() ? 'System Settings' : (page === 'settings' ? 'Operational Settings' : (PAGE_TITLES[page] || (page.charAt(0).toUpperCase() + page.slice(1))));
     $('#view-app').classList.remove('drawer-open');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     LOADERS[page]();
-    if (isSuperadmin() && page === 'settings') applySuperadminReadOnly();
+    if (isSuperadmin() && page === 'settings') applySuperadminSettingsUI();
+    if (isAdmin() && page === 'settings') applyAdminOperationalSettingsUI();
   }
   $('#nav').addEventListener('click', function (e) {
     var b = e.target.closest('[data-page]'); if (b) goto(b.dataset.page);
@@ -3128,7 +3136,7 @@
     var btn = $('#op-poster-upload', host), file = $('#op-poster-file', host);
     btn.onclick = function () { file.click(); };
     file.onchange = function () {
-      if (!isAdmin()) return;
+      if (!isSuperadmin()) return;
       var f = this.files && this.files[0]; this.value = '';
       if (!f) return;
       if (f.size > 5 * 1024 * 1024) return toast('Image is too large (max 5MB).', 'error');
@@ -3360,7 +3368,7 @@
       var sender = $('#s-smtp_from_name'); if (sender) sender.value = s.facility_name || '';
       renderSmsGatewayStatus(s.sms_gateway);
       renderAssetPreviews();
-      applySuperadminReadOnly();
+      applySuperadminSettingsUI();
     }).catch(function (e) { toast(e.message, 'error'); });
   }
   $$('[data-mirror]').forEach(function (mirror) {
@@ -3374,7 +3382,7 @@
   function saveSettings(form, keys) {
     if (!form) return;
     form.addEventListener('submit', function (e) {
-      if (!isAdmin()) { e.preventDefault(); toast('Settings are read-only for Superadmin.', 'error'); return; }
+      if (!isSuperadmin()) { e.preventDefault(); toast('Only the Superadmin can edit Settings.', 'error'); return; }
       e.preventDefault();
       var btn = form.querySelector('button[type=submit]');
       busy(btn, true);
@@ -3434,22 +3442,22 @@
     var type = card.dataset.asset;
     var key = ASSET_KEY[type];
     var file = card.querySelector('[data-file]');
-    card.querySelector('[data-upload]').onclick = function () { if (!isAdmin()) return; file.click(); };
+    card.querySelector('[data-upload]').onclick = function () { if (!isSuperadmin()) return; file.click(); };
     card.querySelector('[data-save]').onclick = function () {
-      if (!isAdmin()) return toast('Branding is read-only for Superadmin.', 'error');
+      if (!isSuperadmin()) return toast('Only the Superadmin can edit branding.', 'error');
       persistAsset(key, card.querySelector('[data-key]').value.trim())
         .then(function () { toast('Branding asset saved.', 'success'); })
         .catch(function (e) { toast(e.message, 'error'); });
     };
     card.querySelector('[data-remove]').onclick = function () {
-      if (!isAdmin()) return toast('Branding is read-only for Superadmin.', 'error');
+      if (!isSuperadmin()) return toast('Only the Superadmin can edit branding.', 'error');
       api('/api/admin/branding/' + type, { method: 'DELETE' }).then(function () {
         return loadSettings().then(function () { return api('/api/branding').then(applyBranding); });
       }).then(function () { toast('Branding asset removed.', 'success'); })
         .catch(function (e) { toast(e.message, 'error'); });
     };
     file.onchange = function () {
-      if (!isAdmin()) return;
+      if (!isSuperadmin()) return;
       var f = this.files && this.files[0];
       this.value = '';
       if (!f) return;
@@ -3470,7 +3478,7 @@
   });
 
   $('#btn-test-email').onclick = function () {
-    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
+    if (!isSuperadmin()) return toast('Only the Superadmin can use this Settings action.', 'error');
     modal({ title: 'Send test email',
       body: '<div class="field"><label class="label" for="te-to">Recipient</label><input class="input" id="te-to" type="email" value="' + esc(USER ? USER.email : '') + '" /></div>',
       confirmText: 'Send test email',
@@ -3480,7 +3488,7 @@
       } });
   };
   $('#btn-test-sms').onclick = function () {
-    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
+    if (!isSuperadmin()) return toast('Only the Superadmin can use this Settings action.', 'error');
     modal({ title: 'Send test SMS',
       body: '<div class="field"><label class="label" for="ts-to">Mobile number</label><input class="input" id="ts-to" placeholder="+63 917 000 0000" /></div>',
       confirmText: 'Send test SMS',
@@ -3491,7 +3499,7 @@
   };
   $('#form-adminpw').addEventListener('submit', function (e) {
     e.preventDefault();
-    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
+    if (!isAdmin()) return toast('Only the normal Admin can use this Operational Settings action.', 'error');
     var btn = e.target.querySelector('button[type=submit]');
     busy(btn, true);
     api('/api/auth/password', { method: 'PUT', body: { current_password: $('#ap-cur').value, new_password: $('#ap-new').value } })
@@ -3500,7 +3508,7 @@
       .finally(function () { busy(btn, false); });
   });
   $('#btn-backup').onclick = function () {
-    if (!isAdmin()) return toast('This action is not available to Superadmin.', 'error');
+    if (!isAdmin()) return toast('Only the normal Admin can use this Operational Settings action.', 'error');
     var btn = this; busy(btn, true);
     fetch(API + '/api/admin/backup', { headers: { Authorization: 'Bearer ' + TOKEN } })
       .then(function (r) { if (!r.ok) throw new Error('Backup failed'); return r.blob(); })
@@ -3517,6 +3525,7 @@
 
 
   $('#btn-reset-system-data').onclick = function () {
+    if (!isAdmin()) return toast('Only the normal Admin can use this Operational Settings action.', 'error');
     var btn = this;
     modal({
       title: 'Reset ALL system data?',
@@ -3704,6 +3713,8 @@
       loadCourts();
       goto('dashboard');
     }
+    applyAdminOperationalSettingsUI();
+    if (isSuperadmin()) applySuperadminSettingsUI();
     RT.connect();
   }
   setTimeout(hideSplash, 900);
