@@ -101,6 +101,45 @@ body {
   background: var(--brand-background);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  position: relative;
+  isolation: isolate;
+}
+
+/* ---------- Brand watermark ---------------------------------------
+   Uses the existing AZUL COURTSIDE brand asset as a very subtle,
+   fixed watermark across the complete client/admin UI. The layer is
+   non-interactive and intentionally sits above page surfaces so the
+   branding remains visible even inside cards, panels and sections.
+-------------------------------------------------------------------- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background-image: url("branding/app_logo-1786955097906-db986592811d.svg");
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: min(430px, 58vw);
+  opacity: 0.035;
+  filter: grayscale(1) contrast(0.9);
+  mix-blend-mode: multiply;
+}
+
+[data-theme="dark"] body::before {
+  opacity: 0.055;
+  mix-blend-mode: screen;
+}
+
+@media (max-width: 700px) {
+  body::before {
+    background-size: min(300px, 68vw);
+    opacity: 0.03;
+  }
+
+  [data-theme="dark"] body::before {
+    opacity: 0.045;
+  }
 }
 img { max-width: 100%; display: block; }
 button, input, select, textarea { font: inherit; color: inherit; }
