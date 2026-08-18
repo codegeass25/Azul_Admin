@@ -43,7 +43,6 @@
       <div class="spread" style="margin-bottom:16px">
         <h2 class="section-title">Admin login</h2>
         <div class="row" style="gap:6px">
-          <button type="button" class="btn btn-ghost btn-icon" id="auth-api" title="Set API server" aria-label="Set API server">⚙</button>
           <button type="button" class="btn btn-ghost btn-icon theme-toggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
         </div>
       </div>
@@ -913,7 +912,7 @@
         if (!res.ok) { if (res.status === 401 && TOKEN) signOutLocal(); throw new Error(data.error || ('Request failed (' + res.status + ')')); }
         return data;
       });
-    }, function () { throw new Error('Cannot reach the booking server. Check the API address.'); });
+    }, function () { throw new Error('Cannot reach the booking server. Please try again later.'); });
   }
 
   function applyTheme(t) { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('pb_theme', t); }
@@ -1485,23 +1484,6 @@
     el.classList.add('is-hidden');
     setTimeout(function () { el.remove(); }, 500);
   }
-
-  /* API dialog */
-  function apiDialog() {
-    modal({
-      title: 'Booking server address',
-      body: '<p class="muted tiny">Public API address served by the Cloudflare Tunnel.</p>' +
-        '<div class="field mt-4"><label class="label" for="api-url">API URL</label>' +
-        '<input class="input" id="api-url" value="' + esc(API) + '" placeholder="https://api.yourdomain.com" /></div>',
-      confirmText: 'Save & reload',
-      onConfirm: function (host) {
-        var v = $('#api-url', host).value.trim().replace(/\/+$/, '');
-        if (!/^https?:\/\//.test(v)) throw new Error('Enter a full URL starting with http:// or https://');
-        localStorage.setItem('pb_api_url', v); location.reload(); return true;
-      }
-    });
-  }
-  $('#auth-api').onclick = apiDialog;
 
   /* login */
   $('#form-login').addEventListener('submit', function (e) {
@@ -3720,8 +3702,7 @@
   setTimeout(hideSplash, 900);
   setTimeout(hideSplash, 6000);
   api('/api/branding').then(applyBranding).catch(function () {
-    toast('Cannot reach the booking server. Set the API address.', 'error');
-    setTimeout(apiDialog, 400);
+    toast('Cannot reach the booking server. Please try again later.', 'error');
   });
   if (TOKEN) api('/api/auth/me').then(function (d) {
     if (!['admin', 'superadmin'].includes(d.user.role)) throw new Error('not admin');
