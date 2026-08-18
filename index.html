@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+<div id="brand-watermark" aria-hidden="true"></div>
 
 <!-- ===================== BOOT SPLASH ==================== -->
 <div id="boot-splash" class="boot-splash" role="status" aria-live="polite">
@@ -1474,6 +1475,20 @@
     $('#hero-name').textContent = name;
     $('#app-name').textContent = name;
     var hs = $('#hero-short'); if (hs) hs.textContent = b.short_name || 'Admin console';
+
+    /* Use the Superadmin's current main branding logo as the global watermark. */
+    var wm = $('#brand-watermark');
+    var wmUrl = b.logo_url || b.app_logo_url || b.boot_logo_url || '';
+    if (wm) {
+      if (wmUrl) {
+        wm.src = assetUrl(wmUrl);
+        wm.classList.add('is-visible');
+      } else {
+        wm.removeAttribute('src');
+        wm.classList.remove('is-visible');
+      }
+    }
+
     SETTINGS.currency = b.currency;
     var sender = $('#s-smtp_from_name'); if (sender) sender.value = name;
   }
