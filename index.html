@@ -12,7 +12,6 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<div id="brand-watermark" aria-hidden="true"></div>
 
 <!-- ===================== BOOT SPLASH ==================== -->
 <div id="boot-splash" class="boot-splash" role="status" aria-live="polite">
@@ -504,6 +503,7 @@
           <div class="settings-group"><span class="settings-group-label">System &amp; advanced</span>
             <div class="tabs" role="tablist">
               <button class="tab" role="tab" data-settab="security" aria-selected="false">Security</button>
+              <button class="tab" role="tab" data-settab="receipts" aria-selected="false">Receipt Archive</button>
               <button class="tab" role="tab" data-settab="ocr" aria-selected="false">OCR</button>
             </div>
           </div>
@@ -782,6 +782,54 @@
           <div><button class="btn btn-primary" type="submit" data-loading="Saving...">Save OCR configuration</button></div>
         </form>
 
+        <div class="card hidden mt-5" id="set-receipts">
+          <div class="spread" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
+            <div>
+              <h2 class="section-title" style="margin-bottom:6px">Receipt Archive</h2>
+              <p class="page-subtitle" style="margin:0;max-width:760px">
+                Permanent, all-time payment history across client payments and admin-recorded in-game payments.
+                Client PayMongo / manual payments and in-game Cash, PayMongo, GCash and PayMaya payments are linked to the same receipt record.
+              </p>
+            </div>
+            <button class="btn btn-outline" type="button" id="ra-refresh">Refresh archive</button>
+          </div>
+
+          <div class="grid cols-4 mt-4" id="ra-stats"></div>
+
+          <div class="card tight mt-4" style="background:var(--surface-2,#fafbfa);border:1px solid var(--border)">
+            <div class="grid cols-4" style="gap:0 12px;align-items:end">
+              <div class="field"><label class="label" for="ra-q">Search</label>
+                <input class="input" id="ra-q" placeholder="Receipt #, customer, reference, transaction..." /></div>
+              <div class="field"><label class="label" for="ra-status">Status</label>
+                <select class="select" id="ra-status">
+                  <option value="all">All statuses</option>
+                  <option value="verified">Verified / paid</option>
+                  <option value="pending">Pending / under review</option>
+                  <option value="rejected">Rejected</option>
+                </select></div>
+              <div class="field"><label class="label" for="ra-from">From</label><input class="input" id="ra-from" type="date" /></div>
+              <div class="field"><label class="label" for="ra-to">To</label><input class="input" id="ra-to" type="date" /></div>
+            </div>
+          </div>
+
+          <div class="table-wrap mt-4">
+            <table class="data">
+              <thead><tr>
+                <th>Receipt</th><th>Date</th><th>Customer</th><th>Transaction</th>
+                <th>Method / Provider</th><th>Amount</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody id="ra-body"><tr><td colspan="8"><div class="empty"><strong>Loading archive...</strong></div></td></tr></tbody>
+            </table>
+          </div>
+          <div class="spread mt-3">
+            <div class="tiny muted" id="ra-summary"></div>
+            <div class="row">
+              <button class="btn btn-outline btn-sm" id="ra-prev" type="button">Previous</button>
+              <button class="btn btn-outline btn-sm" id="ra-next" type="button">Next</button>
+            </div>
+          </div>
+        </div>
+
         <div class="card hidden mt-5" id="set-security">
           <h2 class="section-title" style="margin-bottom:16px">Security & backup</h2>
           <form id="form-adminpw" style="max-width:420px">
@@ -978,7 +1026,7 @@
   function settlementModal(bookingId) {
     api('/api/bookings/' + bookingId + '/settlement').then(function (r) {
       var st = r.settlement;
-      var methods = ['cash', 'gcash', 'maya', 'card', 'other'];
+      var methods = ['cash', 'paymongo', 'gcash', 'maya'];
       var ledger = (r.payments || []).map(function (pm) {
         return '<tr><td>' + esc(pm.payment_type === 'game_payment' ? 'Game payment' :
           pm.payment_type === 'reservation_fee' ? 'Reservation fee' : 'Other') + '</td><td>' +
@@ -1003,30 +1051,52 @@
           (st.balance > 0.009
             ? '<div class="grid cols-2 mt-3" style="gap:0 12px">' +
               '<div class="field"><label class="label" for="gp-method">Payment method</label><select class="select" id="gp-method">' +
-              methods.map(function (m) { return '<option value="' + m + '">' + m.toUpperCase() + '</option>'; }).join('') +
+              methods.map(function (m) {
+                var labels = { cash: 'CASH', paymongo: 'PAYMONGO', gcash: 'MANUAL · GCASH', maya: 'MANUAL · MAYA / PAYMAYA' };
+                return '<option value="' + m + '">' + (labels[m] || m.toUpperCase()) + '</option>';
+              }).join('') +
               '</select></div>' +
               '<div class="field"><label class="label" for="gp-amount">Amount received</label>' +
               '<input class="input" id="gp-amount" type="number" min="0.01" step="0.01" value="' + st.balance + '" /></div>' +
               '<div class="field"><label class="label" for="gp-ref">Reference number</label>' +
-              '<input class="input" id="gp-ref" maxlength="64" placeholder="Required for non-cash payments" /></div>' +
+              '<input class="input" id="gp-ref" maxlength="64" placeholder="Manual GCash/Maya reference; leave blank for PayMongo" /></div>' +
               '<div class="field"><label class="label" for="gp-notes">Notes</label>' +
               '<input class="input" id="gp-notes" maxlength="200" placeholder="Optional" /></div></div>'
             : '<p class="mt-3"><span class="badge badge-confirmed" data-icon="\u2713">This booking is fully settled</span></p>'),
         onConfirm: function (h) {
           var amount = Number($('#gp-amount', h).value);
           if (!(amount > 0)) return Promise.reject(new Error('Enter a valid amount.'));
+          var method = $('#gp-method', h).value;
+          var note = $('#gp-notes', h).value.trim();
+          if (method === 'paymongo') {
+            var payWin = window.open('', '_blank');
+            return api('/api/admin/bookings/' + bookingId + '/game-payment/paymongo', {
+              method: 'POST',
+              body: { amount: amount, notes: note }
+            }).then(function (res) {
+              if (payWin) payWin.location = res.checkout_url;
+              toast('PayMongo checkout opened. The receipt will become VERIFIED after the backend webhook confirms payment.', 'info');
+              refreshWorkflow();
+            }).catch(function (err) {
+              if (payWin) payWin.close();
+              throw err;
+            });
+          }
+          if (method !== 'cash' && !$('#gp-ref', h).value.trim()) {
+            return Promise.reject(new Error('A payment reference is required for manual GCash / Maya payments.'));
+          }
           return api('/api/admin/bookings/' + bookingId + '/game-payment', {
             method: 'POST',
             body: {
-              payment_method: $('#gp-method', h).value,
+              payment_method: method,
               amount: amount,
               reference_number: $('#gp-ref', h).value.trim(),
-              notes: $('#gp-notes', h).value.trim()
+              notes: note
             }
           }).then(function (res) {
             toast(res.settlement.balance > 0
-              ? 'Payment recorded. Remaining balance: ' + money(res.settlement.balance)
-              : 'Payment recorded. This booking is now fully paid.', 'success');
+              ? 'Payment recorded. Receipt archived. Remaining balance: ' + money(res.settlement.balance)
+              : 'Payment recorded. Receipt archived. This booking is now fully paid.', 'success');
             refreshWorkflow();
           });
         }
@@ -1475,20 +1545,6 @@
     $('#hero-name').textContent = name;
     $('#app-name').textContent = name;
     var hs = $('#hero-short'); if (hs) hs.textContent = b.short_name || 'Admin console';
-
-    /* Use the Superadmin's current main branding logo as the global watermark. */
-    var wm = $('#brand-watermark');
-    var wmUrl = b.logo_url || b.app_logo_url || b.boot_logo_url || '';
-    if (wm) {
-      if (wmUrl) {
-        wm.src = assetUrl(wmUrl);
-        wm.classList.add('is-visible');
-      } else {
-        wm.removeAttribute('src');
-        wm.classList.remove('is-visible');
-      }
-    }
-
     SETTINGS.currency = b.currency;
     var sender = $('#s-smtp_from_name'); if (sender) sender.value = name;
   }
@@ -1662,9 +1718,12 @@
     if (!isAdmin()) return;
     var root = $('#page-settings');
     if (!root) return;
-    /* For normal Admin, Settings contains ONLY Operational Settings. */
+    /* Normal Admin gets password/backup operations plus Receipt Archive only. */
     Array.prototype.forEach.call(root.children, function (el) {
-      el.classList.toggle('hidden', el.id !== 'set-security');
+      el.classList.toggle('hidden', !['set-security','set-receipts'].includes(el.id));
+    });
+    $$('[data-settab]', root).forEach(function (tab) {
+      tab.classList.toggle('hidden', !['security','receipts'].includes(tab.dataset.settab));
     });
     var security = $('#set-security');
     if (security) {
@@ -1672,6 +1731,8 @@
       var heading = security.querySelector('.section-title');
       if (heading) heading.textContent = 'Operational Settings';
     }
+    var receipts = $('#set-receipts');
+    if (receipts) receipts.classList.add('hidden');
   }
   function applySuperadminSettingsUI() {
     if (!isSuperadmin()) return;
@@ -1681,6 +1742,8 @@
        are reserved for the normal Admin UI. */
     var security = $('#set-security');
     if (security) security.classList.add('hidden');
+    var receipts = $('#set-receipts');
+    if (receipts) receipts.classList.add('hidden');
     $$('input, select, textarea, button', root).forEach(function (el) {
       if (el.matches('[data-settab]')) el.disabled = false;
       else if (!el.closest('#set-security')) el.disabled = false;
@@ -1701,7 +1764,7 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
     LOADERS[page]();
     if (isSuperadmin() && page === 'settings') applySuperadminSettingsUI();
-    if (isAdmin() && page === 'settings') applyAdminOperationalSettingsUI();
+    if (isAdmin() && page === 'settings') { applyAdminOperationalSettingsUI(); selectSettingTab('security'); }
   }
   $('#nav').addEventListener('click', function (e) {
     var b = e.target.closest('[data-page]'); if (b) goto(b.dataset.page);
@@ -3321,19 +3384,95 @@
     else if (current === 'events') loadEventsHub();
   }, 20000);
 
+  /* ---------- receipt archive ---------- */
+  var RA_PAGE = 0, RA_LIMIT = 250;
+  function loadReceiptArchive() {
+    var q = encodeURIComponent($('#ra-q').value.trim());
+    var status = encodeURIComponent($('#ra-status').value);
+    var from = encodeURIComponent($('#ra-from').value || '');
+    var to = encodeURIComponent($('#ra-to').value || '');
+    var qs = '?limit=' + RA_LIMIT + '&offset=' + (RA_PAGE * RA_LIMIT) + '&q=' + q + '&status=' + status + '&from=' + from + '&to=' + to;
+    return api('/api/admin/receipt-archive' + qs).then(function (d) {
+      var s = d.stats || {};
+      $('#ra-stats').innerHTML = [
+        ['All-time receipts', s.total || 0],
+        ['Verified / paid', s.verified || 0],
+        ['Pending / review', s.pending || 0],
+        ['Verified revenue', money(s.total_collected || 0)]
+      ].map(function (c) {
+        return '<div class="card tight stat-card"><span class="label">' + esc(c[0]) + '</span><span class="stat-value num" style="font-size:1.35rem">' + esc(c[1]) + '</span></div>';
+      }).join('');
+
+      $('#ra-body').innerHTML = d.receipts && d.receipts.length
+        ? d.receipts.map(function (r) {
+            var statusClass = String(r.status).toLowerCase() === 'verified' ? 'badge-approved' :
+              String(r.status).toLowerCase() === 'rejected' ? 'badge-rejected' : 'badge-pending';
+            var method = String(r.payment_method || '').toUpperCase();
+            var provider = String(r.payment_provider || 'MANUAL').toUpperCase();
+            var stamp = r.verified_at || r.created_at || r.archived_at;
+            return '<tr>' +
+              '<td><strong>' + esc(r.receipt_no) + '</strong><div class="tiny muted">' + esc(r.transaction_key) + '</div></td>' +
+              '<td class="tiny">' + esc(txStamp(stamp)) + '</td>' +
+              '<td>' + esc(r.client_name || '—') + '<div class="tiny muted">' + esc(r.client_email || '') + '</div></td>' +
+              '<td>' + esc(r.item_name || r.transaction_type || 'Payment') + '<div class="tiny muted">' + esc(r.booking_reference || r.payment_type || '') + '</div></td>' +
+              '<td>' + esc(method || '—') + '<div class="tiny muted">' + esc(provider) + '</div></td>' +
+              '<td class="num">' + esc(money(r.amount)) + '</td>' +
+              '<td>' + txBadge(TX_STATUS_LABEL[r.unified_status] || r.status || 'RECORDED', statusClass) + '</td>' +
+              '<td class="row-actions"><button class="btn btn-outline btn-sm" data-receipt-view="' + esc(r.id) + '">View / Print</button></td>' +
+            '</tr>';
+          }).join('')
+        : '<tr><td colspan="8"><div class="empty"><strong>No archived receipts found</strong>Try a different search or date range.</div></td></tr>';
+
+      var start = d.total ? (d.offset + 1) : 0;
+      var end = Math.min(d.offset + (d.receipts || []).length, d.total || 0);
+      $('#ra-summary').textContent = d.total ? ('Showing ' + start + '–' + end + ' of ' + d.total + ' archived receipts.') : 'No receipts match the current filters.';
+      $('#ra-prev').disabled = RA_PAGE <= 0;
+      $('#ra-next').disabled = (d.offset + (d.receipts || []).length) >= d.total;
+    });
+  }
+
   /* ---------- settings ---------- */
-  var SETTAB = { branding: '#set-branding', assets: '#set-branding-assets', booking: '#set-booking', payments: '#set-payments', email: '#set-email', sms: '#set-sms', notify: '#set-notify', ocr: '#set-ocr', security: '#set-security' };
+  var SETTAB = { branding: '#set-branding', assets: '#set-branding-assets', booking: '#set-booking', payments: '#set-payments', email: '#set-email', sms: '#set-sms', notify: '#set-notify', receipts: '#set-receipts', ocr: '#set-ocr', security: '#set-security' };
+  function selectSettingTab(sel) {
+    if (isAdmin() && !isSuperadmin() && ['security','receipts'].indexOf(sel) < 0) return;
+    $$('[data-settab]').forEach(function (x) { x.setAttribute('aria-selected', String(x.dataset.settab === sel)); });
+    Object.keys(SETTAB).forEach(function (k) {
+      /* Branding and logo assets are one screen. */
+      var show = (k === sel) || (sel === 'branding' && k === 'assets');
+      $(SETTAB[k]).classList.toggle('hidden', !show);
+    });
+    if (sel === 'receipts') loadReceiptArchive().catch(function (e) { toast(e.message, 'error'); });
+  }
   $$('[data-settab]').forEach(function (t) {
-    t.onclick = function () {
-      $$('[data-settab]').forEach(function (x) { x.setAttribute('aria-selected', String(x === t)); });
-      var sel = t.dataset.settab;
-      Object.keys(SETTAB).forEach(function (k) {
-        /* Branding and logo assets are one screen. */
-        var show = (k === sel) || (sel === 'branding' && k === 'assets');
-        $(SETTAB[k]).classList.toggle('hidden', !show);
-      });
-    };
+    t.onclick = function () { selectSettingTab(t.dataset.settab); };
   });
+
+  $('#ra-refresh').onclick = function () { RA_PAGE = 0; loadReceiptArchive().catch(function (e) { toast(e.message, 'error'); }); };
+  ['#ra-status', '#ra-from', '#ra-to'].forEach(function (sel) {
+    $(sel).onchange = function () { RA_PAGE = 0; loadReceiptArchive().catch(function (e) { toast(e.message, 'error'); }); };
+  });
+  var RA_Q_T = null;
+  $('#ra-q').oninput = function () {
+    clearTimeout(RA_Q_T);
+    RA_Q_T = setTimeout(function () { RA_PAGE = 0; loadReceiptArchive().catch(function (e) { toast(e.message, 'error'); }); }, 300);
+  };
+  $('#ra-prev').onclick = function () {
+    if (RA_PAGE > 0) { RA_PAGE -= 1; loadReceiptArchive().catch(function (e) { toast(e.message, 'error'); }); }
+  };
+  $('#ra-next').onclick = function () { RA_PAGE += 1; loadReceiptArchive().catch(function (e) { toast(e.message, 'error'); }); };
+  $('#ra-body').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-receipt-view]');
+    if (!b) return;
+    var id = b.dataset.receiptView;
+    api('/api/admin/receipt-archive/' + encodeURIComponent(id) + '/html').then(function (d) {
+      var w = window.open('', '_blank');
+      if (!w) throw new Error('The browser blocked the receipt window. Please allow pop-ups for the admin site.');
+      w.document.open();
+      w.document.write(d.html || '');
+      w.document.close();
+    }).catch(function (err) { toast(err.message, 'error'); });
+  });
+
   /* Renders the backend-reported, credential-free SMS transport status. */
   function renderSmsGatewayStatus(g) {
     var host = $('#sms-gw-status'); if (!host) return;
