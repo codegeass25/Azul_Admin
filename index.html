@@ -1058,7 +1058,7 @@
           '<p class="muted tiny mt-2">Choose how the customer will settle the remaining balance. Manual payments require a GCash/PayMaya receipt upload and OCR, just like the booking payment flow. PayMongo is automatically verified by webhook.</p>' +
           '<div class="table-wrap mt-3"><table class="data"><thead><tr><th>Type</th><th>Method</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>' + ledger + '</tbody></table></div>' +
           (st.balance > 0.009 ?
-            '<div class="field mt-3"><label class="label" for="gp-method">Payment method</label><select class="select" id="gp-method"><option value="gcash">Manual · GCash + Upload Receipt (OCR)</option><option value="maya">Manual · PayMaya + Upload Receipt (OCR)</option><option value="paymongo">Automatic · PayMongo</option></select></div>' +
+            '<div class="field mt-3"><label class="label" for="gp-method">Payment method</label><select class="select" id="gp-method"><option value="gcash">GCash</option><option value="maya">Maya / PayMaya</option><option value="other">Other</option><option value="cash">Cash</option><option value="paymongo">Pay securely online with PayMongo</option></select></div>' +
             '<div id="gp-manual" class="stack" style="gap:12px">' +
               '<div class="field"><label class="label" for="gp-proof">Payment receipt</label><input class="input" id="gp-proof" type="file" accept="image/png,image/jpeg,image/webp" /><span class="field-hint">JPG, PNG or WEBP up to 5MB. OCR reads the payment reference automatically.</span></div>' +
               '<div class="field"><label class="label" for="gp-ref">Reference number (read automatically)</label><input class="input" id="gp-ref" maxlength="64" readonly tabindex="-1" placeholder="Upload receipt first" /><span class="ocr-status" id="gp-ocr-status">Upload a receipt to start OCR.</span></div>' +
@@ -1070,6 +1070,10 @@
           if (st.balance <= 0.009) return Promise.resolve();
           var method=$('#gp-method',h).value;
           if (method==='paymongo') return api('/api/paymongo/checkout',{method:'POST',body:{transaction_type:'game_payment',source_id:bookingId}}).then(function(res){ if(!res.checkout_url) throw new Error('PayMongo did not return a checkout URL.'); window.location.href=res.checkout_url; });
+          if (method==='cash') return api('/api/admin/bookings/'+bookingId+'/game-payment',{method:'POST',body:{payment_method:'cash'}}).then(function(res){
+            if(res.validation && res.validation.status==='AUTO_REJECT') throw new Error(res.validation.reason || 'The payment was rejected.');
+            toast('Cash payment recorded and verified.','success'); refreshWorkflow();
+          });
           var token=$('#gp-scan-token',h).value;
           if(!token) return Promise.reject(new Error('Upload the receipt and wait for OCR to finish.'));
           return api('/api/admin/bookings/'+bookingId+'/game-payment',{method:'POST',body:{payment_method:method,scan_token:token}}).then(function(res){
@@ -1079,7 +1083,7 @@
         }
       });
       var host=dlg.host||dlg, sel=$('#gp-method',host);
-      function sync(){ var online=sel.value==='paymongo'; $('#gp-manual',host).classList.toggle('hidden',online); $('#gp-online',host).classList.toggle('hidden',!online); }
+      function sync(){ var online=sel.value==='paymongo', cash=sel.value==='cash'; $('#gp-manual',host).classList.toggle('hidden',online||cash); $('#gp-online',host).classList.toggle('hidden',!online); }
       sel.onchange=sync; sync();
       var file=$('#gp-proof',host);
       if(file) file.onchange=function(){
