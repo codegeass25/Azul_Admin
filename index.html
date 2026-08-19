@@ -1699,7 +1699,7 @@
       $('#admin-role-label').style.color = 'var(--accent,#2563eb)';
       $('#page-title').textContent = 'System Settings';
     } else {
-      $('#admin-role-label').textContent = 'ADMIN';
+      $('#admin-role-label').textContent = 'ADMIN · SETTINGS';
       $('#admin-role-label').style.color = '';
     }
   }
@@ -1707,12 +1707,21 @@
     if (!isAdmin()) return;
     var root = $('#page-settings');
     if (!root) return;
-    /* Normal Admin gets password/backup operations plus the Receipt Archive. */
+    /* Normal Admin gets only the operational Settings controls plus Receipt Archive.
+       Keep the settings tab navigation visible; the previous implementation hid
+       the navigation wrapper itself because it has no id. */
     Array.prototype.forEach.call(root.children, function (el) {
+      if (el.classList.contains('settings-nav')) {
+        el.classList.remove('hidden');
+        return;
+      }
       el.classList.toggle('hidden', !['set-security','set-receipts'].includes(el.id));
     });
     $$('[data-settab]', root).forEach(function (tab) {
-      tab.classList.toggle('hidden', !['security','receipts'].includes(tab.dataset.settab));
+      var visible = ['security','receipts'].includes(tab.dataset.settab);
+      tab.classList.toggle('hidden', !visible);
+      if (!visible) tab.setAttribute('aria-hidden', 'true');
+      else tab.removeAttribute('aria-hidden');
     });
     var security = $('#set-security');
     if (security) {
@@ -1756,7 +1765,10 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
     LOADERS[page]();
     if (isSuperadmin() && page === 'settings') applySuperadminSettingsUI();
-    if (isAdmin() && page === 'settings') { applyAdminOperationalSettingsUI(); selectSettingTab('security'); }
+    if (isAdmin() && page === 'settings') {
+      applyAdminOperationalSettingsUI();
+      selectSettingTab('security');
+    }
   }
   $('#nav').addEventListener('click', function (e) {
     var b = e.target.closest('[data-page]'); if (b) goto(b.dataset.page);
