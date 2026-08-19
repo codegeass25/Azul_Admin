@@ -1718,7 +1718,7 @@
     if (!isAdmin()) return;
     var root = $('#page-settings');
     if (!root) return;
-    /* Normal Admin gets password/backup operations plus Receipt Archive only. */
+    /* Normal Admin gets password/backup operations plus the Receipt Archive. */
     Array.prototype.forEach.call(root.children, function (el) {
       el.classList.toggle('hidden', !['set-security','set-receipts'].includes(el.id));
     });
@@ -1732,7 +1732,7 @@
       if (heading) heading.textContent = 'Operational Settings';
     }
     var receipts = $('#set-receipts');
-    if (receipts) receipts.classList.add('hidden');
+    if (receipts) receipts.classList.remove('hidden');
   }
   function applySuperadminSettingsUI() {
     if (!isSuperadmin()) return;
@@ -1744,9 +1744,12 @@
     if (security) security.classList.add('hidden');
     var receipts = $('#set-receipts');
     if (receipts) receipts.classList.add('hidden');
+    $$('[data-settab]', root).forEach(function (tab) {
+      tab.classList.toggle('hidden', ['security','receipts'].includes(tab.dataset.settab));
+    });
     $$('input, select, textarea, button', root).forEach(function (el) {
       if (el.matches('[data-settab]')) el.disabled = false;
-      else if (!el.closest('#set-security')) el.disabled = false;
+      else if (!el.closest('#set-security, #set-receipts')) el.disabled = false;
     });
   }
   function goto(page) {
@@ -3387,6 +3390,7 @@
   /* ---------- receipt archive ---------- */
   var RA_PAGE = 0, RA_LIMIT = 250;
   function loadReceiptArchive() {
+    if (!isAdmin() || isSuperadmin()) return Promise.reject(new Error('Receipt Archive is available only to the Admin role.'));
     var q = encodeURIComponent($('#ra-q').value.trim());
     var status = encodeURIComponent($('#ra-status').value);
     var from = encodeURIComponent($('#ra-from').value || '');
